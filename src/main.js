@@ -87,13 +87,14 @@ const SPOTIFY_GESTURES = {
   4: { action: 'prev',       label: '⏮  Prev Track'   },
 };
 
-// ── Left hand rotation (volume) ────────────────────────────────────
-const WRIST_HIST_LEN = 20;       // sliding window size
-const ROT_PER_TICK  = 1.2;       // ~70° accumulated rotation to fire one tick
-const VOL_COOLDOWN_F = 25;       // frames between volume ticks
-let wristHistory = [];            // recent wrist positions {x, y}
-let rotAccum = 0;                 // accumulated signed rotation (radians)
-let volCooldown = 0;
+// ── Left hand Y-swipe (volume) ─────────────────────────────────────
+// Track wrist Y over a rolling window. A net upward swipe = vol_up,
+// net downward swipe = vol_down. Much more reliable than rotation.
+const SWIPE_WIN      = 10;       // frames in sliding window
+const SWIPE_THRESH   = 0.055;    // net Y displacement (0-1 normalised) to fire
+const VOL_COOLDOWN_F = 35;       // frames between volume ticks
+let wristYHistory = [];           // rolling wrist Y positions
+let volCooldown   = 0;
 
 function countExtendedFingers(lm) {
   // Compare fingertip y to PIP joint y (lower y = higher on screen = extended)
@@ -183,6 +184,10 @@ async function predictWebcam() {
           if (label === 'Right' && leftHandIdx  === -1) leftHandIdx  = i;
         }
       }
+      // Debug: log which hands are visible each second (~every 30 frames)
+      if (Math.floor(performance.now() / 1000) % 2 === 0 && lastVideoTime % 1 < 0.05) {
+        console.log(`[Hands] rightIdx=${rightHandIdx} leftIdx=${leftHandIdx} total=${results.landmarks.length}`);
+      }
 
       // ── RIGHT HAND: cursor + clicks ──────────────────────────────────
       const landmarks = rightHandIdx !== -1 ? results.landmarks[rightHandIdx] : null;
@@ -255,7 +260,7 @@ async function predictWebcam() {
                 spotifyLabelFrames = 90;
                 spotifyCooldown = SPOTIFY_COOLDOWN;
                 for (const k of [2, 3, 4]) spotifyFrames[k] = 0;
-                rotAccum = 0; wristHistory = []; // clear rotation state too
+                wristYHistory = []; // clear swipe state too
               }
             } else {
               spotifyFrames[count] = 0;
@@ -263,51 +268,40 @@ async function predictWebcam() {
           }
         }
 
-        // ── Rotation detection: wrist circular motion = volume ──────────
-        const wrist = leftLandmarks[0];
-        wristHistory.push({ x: wrist.x, y: wrist.y });
-        if (wristHistory.length > WRIST_HIST_LEN) wristHistory.shift();
+        // ── Y-swipe detection: left hand swipe up/down = volume ───────────
+        // Push wrist Y into a rolling window; compare oldest vs newest.
+        // In MediaPipe coords, Y=0 is top so: moving UP = Y decreasing.
+        const wristY = leftLandmarks[0].y;
+        wristYHistory.push(wristY);
+        if (wristYHistory.length > SWIPE_WIN) wristYHistory.shift();
 
         if (volCooldown > 0) {
           volCooldown--;
-        } else if (wristHistory.length >= 4) {
-          // Centroid of sliding window
-          const cx = wristHistory.reduce((s, p) => s + p.x, 0) / wristHistory.length;
-          const cy = wristHistory.reduce((s, p) => s + p.y, 0) / wristHistory.length;
-
-          // Signed angle between last two vectors from centroid
-          const prev = wristHistory[wristHistory.length - 2];
-          const curr = wristHistory[wristHistory.length - 1];
-          const ax = prev.x - cx, ay = prev.y - cy;
-          const bx = curr.x - cx, by = curr.y - cy;
-          const lenA = Math.hypot(ax, ay), lenB = Math.hypot(bx, by);
-
-          if (lenA > 0.005 && lenB > 0.005) {
-            // Positive cross = clockwise in screen coords (Y-axis down)
-            rotAccum += Math.atan2(ax * by - ay * bx, ax * bx + ay * by);
-          }
-          rotAccum *= 0.97; // gentle decay to avoid drift
+        } else if (wristYHistory.length === SWIPE_WIN) {
+          const netY = wristYHistory[SWIPE_WIN - 1] - wristYHistory[0]; // positive = moved DOWN
+          console.log(`[Vol] wristY=${wristY.toFixed(3)} netY=${netY.toFixed(3)} thr=±${SWIPE_THRESH}`);
 
           if (!isStopped) {
-            if (rotAccum > ROT_PER_TICK) {
+            if (netY < -SWIPE_THRESH) {           // hand moved UP → vol up
               wsSend({ type: 'spotify', action: 'vol_up' });
               spotifyLabel = '🔊  Volume Up';
               spotifyLabelFrames = 60;
-              rotAccum = 0; wristHistory = []; volCooldown = VOL_COOLDOWN_F;
-            } else if (rotAccum < -ROT_PER_TICK) {
+              wristYHistory = []; volCooldown = VOL_COOLDOWN_F;
+              console.log('[Vol] FIRED vol_up');
+            } else if (netY > SWIPE_THRESH) {     // hand moved DOWN → vol down
               wsSend({ type: 'spotify', action: 'vol_down' });
               spotifyLabel = '🔉  Volume Down';
               spotifyLabelFrames = 60;
-              rotAccum = 0; wristHistory = []; volCooldown = VOL_COOLDOWN_F;
+              wristYHistory = []; volCooldown = VOL_COOLDOWN_F;
+              console.log('[Vol] FIRED vol_down');
             }
           }
         }
 
       } else {
-        // Left hand not visible — reset Spotify + rotation state
+        // Left hand not visible — reset state
         for (const k of [2, 3, 4]) spotifyFrames[k] = 0;
-        wristHistory = [];
-        rotAccum = 0;
+        wristYHistory = [];
       }
 
     } else {
@@ -318,8 +312,7 @@ async function predictWebcam() {
       leftClickFrames = 0;
       rightClickFrames = 0;
       for (const k of [2, 3, 4]) spotifyFrames[k] = 0;
-      wristHistory = [];
-      rotAccum = 0;
+      wristYHistory = [];
     }
   }
   

@@ -263,4 +263,4 @@ VirtualMouse/
 
 ---
 
-*Built with ❤️ using MediaPipe + Python*
+*Built using MediaPipe + Python*
