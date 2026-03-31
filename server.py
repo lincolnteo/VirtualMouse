@@ -4,7 +4,7 @@ Virtual Mouse Server
 Bridges browser hand-tracking → real Windows mouse via pyautogui.
 
 Install dependencies:
-    pip install pyautogui websockets
+    pip install pyautogui websockets pycaw
 
 Run:
     python server.py
@@ -18,6 +18,7 @@ import json
 import sys
 import pyautogui
 import websockets
+from pycaw.pycaw import AudioUtilities, ISimpleAudioVolume
 
 # Safety: disable pyautogui's own failsafe (we have ESC in the browser)
 pyautogui.FAILSAFE = False
@@ -26,6 +27,27 @@ pyautogui.PAUSE = 0  # remove default delay between calls for low latency
 screen_w, screen_h = pyautogui.size()
 connected_clients = set()
 paused = False  # tracks emergency-stop state
+
+
+def adjust_spotify_volume(delta: float):
+    """Change Spotify's app volume by `delta` (e.g. +0.05 or -0.05).
+
+    Uses pycaw to target only Spotify's audio session so the system
+    master volume is never touched.
+    """
+    try:
+        sessions = AudioUtilities.GetAllSessions()
+        for session in sessions:
+            if session.Process and session.Process.name().lower() == "spotify.exe":
+                volume = session._ctl.QueryInterface(ISimpleAudioVolume)
+                current = volume.GetMasterVolume()
+                new_vol = max(0.0, min(1.0, current + delta))
+                volume.SetMasterVolume(new_vol, None)
+                print(f"[Spotify] volume {current:.2f} → {new_vol:.2f}")
+                return
+        print("[Spotify] Spotify not found / not playing audio")
+    except Exception as e:
+        print(f"[Spotify] Volume error: {e}")
 
 
 async def handler(websocket):
@@ -63,6 +85,25 @@ async def handler(websocket):
 
                 elif msg_type == "right_click":
                     pyautogui.rightClick(_pause=False)
+
+                elif msg_type == "spotify":
+                    action = data.get("action")
+
+                    if action in ("vol_up", "vol_down"):
+                        # Adjust Spotify's app volume only (not system volume)
+                        adjust_spotify_volume(0.05 if action == "vol_up" else -0.05)
+                        print(f"[Spotify] {action} → Spotify app volume")
+                    else:
+                        # Global media keys for play/pause, next, prev
+                        key_map = {
+                            "play_pause": "playpause",
+                            "next":       "nexttrack",
+                            "prev":       "prevtrack",
+                        }
+                        key = key_map.get(action)
+                        if key:
+                            pyautogui.press(key)
+                            print(f"[Spotify] {action} → {key}")
 
             except (json.JSONDecodeError, KeyError) as e:
                 print(f"[!] Bad message: {e}")

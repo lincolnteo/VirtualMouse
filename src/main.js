@@ -73,6 +73,35 @@ function updateHUD() {
 
 connectWS();
 
+// ── Spotify gesture state ──────────────────────────────────────────
+const SPOTIFY_FRAMES_REQ = 8;   // hold N frames to fire
+const SPOTIFY_COOLDOWN = 45;    // frames to wait after firing
+let spotifyFrames = { 2: 0, 3: 0, 4: 0 };
+let spotifyCooldown = 0;
+let spotifyLabel = '';           // shown on canvas after firing
+let spotifyLabelFrames = 0;     // how long to show the label
+
+const SPOTIFY_GESTURES = {
+  2: { action: 'play_pause', label: '⏯  Play / Pause' },
+  3: { action: 'next',       label: '⏭  Next Track'   },
+  4: { action: 'prev',       label: '⏮  Prev Track'   },
+};
+
+// ── Left hand rotation (volume) ────────────────────────────────────
+const WRIST_HIST_LEN = 20;       // sliding window size
+const ROT_PER_TICK  = 1.2;       // ~70° accumulated rotation to fire one tick
+const VOL_COOLDOWN_F = 25;       // frames between volume ticks
+let wristHistory = [];            // recent wrist positions {x, y}
+let rotAccum = 0;                 // accumulated signed rotation (radians)
+let volCooldown = 0;
+
+function countExtendedFingers(lm) {
+  // Compare fingertip y to PIP joint y (lower y = higher on screen = extended)
+  const tips = [8, 12, 16, 20];
+  const pips = [6, 10, 14, 18];
+  return tips.reduce((n, tip, i) => n + (lm[tip].y < lm[pips[i]].y ? 1 : 0), 0);
+}
+
 // Physics variables
 const cursor = {
   pos: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
@@ -144,95 +173,153 @@ async function predictWebcam() {
     const results = handLandmarker.detectForVideo(video, startTimeMs);
     
     if (results.landmarks && results.landmarks.length > 0) {
-      // Find the right hand by handedness label
-      // Note: front-facing webcams are mirrored, so MediaPipe may label
-      // your right hand as "Left". If tracking feels reversed, swap to "Left".
-      let handIndex = -1;
+      // Resolve each hand by label (mirrored webcam: user's right = "Left", user's left = "Right")
+      let rightHandIdx = -1; // user's right hand — cursor control
+      let leftHandIdx  = -1; // user's left hand  — Spotify control
       if (results.handedness) {
         for (let i = 0; i < results.handedness.length; i++) {
-          if (results.handedness[i][0].categoryName === "Left") {
-            handIndex = i;
-            break;
-          }
+          const label = results.handedness[i][0].categoryName;
+          if (label === 'Left'  && rightHandIdx === -1) rightHandIdx = i;
+          if (label === 'Right' && leftHandIdx  === -1) leftHandIdx  = i;
         }
       }
-      // Fall back to first hand if handedness unavailable
-      if (handIndex === -1) handIndex = 0;
 
-      const landmarks = results.landmarks[handIndex];
-      if (!landmarks) {
-        // Right hand not visible — reset and skip
+      // ── RIGHT HAND: cursor + clicks ──────────────────────────────────
+      const landmarks = rightHandIdx !== -1 ? results.landmarks[rightHandIdx] : null;
+
+      if (landmarks) {
+        const indexFingerTip  = landmarks[8];
+        const thumbTip        = landmarks[4];
+        const middleFingerTip = landmarks[12];
+
+        // Left click: thumb + index pinch — debounced
+        const distLeft = Math.hypot(
+          indexFingerTip.x - thumbTip.x,
+          indexFingerTip.y - thumbTip.y
+        );
+        if (distLeft < 0.05) { leftClickFrames++; } else { leftClickFrames = 0; }
+        const wasPinching = isPinching;
+        isPinching = leftClickFrames >= CLICK_FRAMES_REQ;
+
+        // Right click: thumb + middle finger pinch — debounced
+        const distRight = Math.hypot(
+          middleFingerTip.x - thumbTip.x,
+          middleFingerTip.y - thumbTip.y
+        );
+        if (distRight < 0.04) { rightClickFrames++; } else { rightClickFrames = 0; }
+        const wasRightClicking = isRightClicking;
+        isRightClicking = rightClickFrames >= CLICK_FRAMES_REQ && !isPinching;
+
+        // Fire clicks on leading edge
+        if (!isStopped) {
+          if (isRightClicking && !wasRightClicking) {
+            wsSend({ type: 'left_click' });
+          } else if (isPinching && !wasPinching && !isRightClicking) {
+            wsSend({ type: 'right_click' });
+          }
+        }
+
+        // Cursor follows index finger tip (mirrored X, remapped)
+        const normX  = remap(1 - indexFingerTip.x, MARGIN_X);
+        const normY  = remap(indexFingerTip.y, MARGIN_Y);
+        target.pos.x = normX * canvas.width;
+        target.pos.y = normY * canvas.height;
+        target.active = true;
+
+        if (!isStopped) wsSend({ type: 'move', x: normX, y: normY });
+      } else {
+        // Right hand not visible
         target.active = false;
         isPinching = false;
         isRightClicking = false;
         leftClickFrames = 0;
         rightClickFrames = 0;
-        updatePhysics();
-        drawScene();
-        if (webcamRunning) requestAnimationFrame(predictWebcam);
-        return;
       }
 
-      const indexFingerTip = landmarks[8];  // Index finger tip
-      const thumbTip = landmarks[4];        // Thumb tip
-      const middleFingerTip = landmarks[12]; // Middle finger tip
+      // ── LEFT HAND: Spotify gestures ───────────────────────────────────
+      const leftLandmarks = leftHandIdx !== -1 ? results.landmarks[leftHandIdx] : null;
 
-      // Left click: thumb + index pinch — debounced
-      const distLeft = Math.hypot(
-        indexFingerTip.x - thumbTip.x,
-        indexFingerTip.y - thumbTip.y
-      );
-      if (distLeft < 0.05) {
-        leftClickFrames++;
-      } else {
-        leftClickFrames = 0;
-      }
-      const wasPinching = isPinching;
-      isPinching = leftClickFrames >= CLICK_FRAMES_REQ;
-
-      // Right click: thumb + middle finger pinch — debounced
-      const distRight = Math.hypot(
-        middleFingerTip.x - thumbTip.x,
-        middleFingerTip.y - thumbTip.y
-      );
-      if (distRight < 0.04) {
-        rightClickFrames++;
-      } else {
-        rightClickFrames = 0;
-      }
-      const wasRightClicking = isRightClicking;
-      isRightClicking = rightClickFrames >= CLICK_FRAMES_REQ && !isPinching;
-
-      // Fire clicks only on the leading edge (gesture start)
-      if (!isStopped) {
-        if (isRightClicking && !wasRightClicking) {
-          wsSend({ type: 'left_click' });
-        } else if (isPinching && !wasPinching && !isRightClicking) {
-          wsSend({ type: 'right_click' });
+      if (leftLandmarks) {
+        const extFingers = countExtendedFingers(leftLandmarks);
+        if (spotifyCooldown > 0) {
+          spotifyCooldown--;
+          for (const k of [2, 3, 4]) spotifyFrames[k] = 0;
+        } else {
+          for (const [n, g] of Object.entries(SPOTIFY_GESTURES)) {
+            const count = parseInt(n);
+            if (extFingers === count) {
+              spotifyFrames[count]++;
+              if (spotifyFrames[count] === SPOTIFY_FRAMES_REQ && !isStopped) {
+                wsSend({ type: 'spotify', action: g.action });
+                spotifyLabel = g.label;
+                spotifyLabelFrames = 90;
+                spotifyCooldown = SPOTIFY_COOLDOWN;
+                for (const k of [2, 3, 4]) spotifyFrames[k] = 0;
+                rotAccum = 0; wristHistory = []; // clear rotation state too
+              }
+            } else {
+              spotifyFrames[count] = 0;
+            }
+          }
         }
+
+        // ── Rotation detection: wrist circular motion = volume ──────────
+        const wrist = leftLandmarks[0];
+        wristHistory.push({ x: wrist.x, y: wrist.y });
+        if (wristHistory.length > WRIST_HIST_LEN) wristHistory.shift();
+
+        if (volCooldown > 0) {
+          volCooldown--;
+        } else if (wristHistory.length >= 4) {
+          // Centroid of sliding window
+          const cx = wristHistory.reduce((s, p) => s + p.x, 0) / wristHistory.length;
+          const cy = wristHistory.reduce((s, p) => s + p.y, 0) / wristHistory.length;
+
+          // Signed angle between last two vectors from centroid
+          const prev = wristHistory[wristHistory.length - 2];
+          const curr = wristHistory[wristHistory.length - 1];
+          const ax = prev.x - cx, ay = prev.y - cy;
+          const bx = curr.x - cx, by = curr.y - cy;
+          const lenA = Math.hypot(ax, ay), lenB = Math.hypot(bx, by);
+
+          if (lenA > 0.005 && lenB > 0.005) {
+            // Positive cross = clockwise in screen coords (Y-axis down)
+            rotAccum += Math.atan2(ax * by - ay * bx, ax * bx + ay * by);
+          }
+          rotAccum *= 0.97; // gentle decay to avoid drift
+
+          if (!isStopped) {
+            if (rotAccum > ROT_PER_TICK) {
+              wsSend({ type: 'spotify', action: 'vol_up' });
+              spotifyLabel = '🔊  Volume Up';
+              spotifyLabelFrames = 60;
+              rotAccum = 0; wristHistory = []; volCooldown = VOL_COOLDOWN_F;
+            } else if (rotAccum < -ROT_PER_TICK) {
+              wsSend({ type: 'spotify', action: 'vol_down' });
+              spotifyLabel = '🔉  Volume Down';
+              spotifyLabelFrames = 60;
+              rotAccum = 0; wristHistory = []; volCooldown = VOL_COOLDOWN_F;
+            }
+          }
+        }
+
+      } else {
+        // Left hand not visible — reset Spotify + rotation state
+        for (const k of [2, 3, 4]) spotifyFrames[k] = 0;
+        wristHistory = [];
+        rotAccum = 0;
       }
 
-      // Cursor always follows the index finger tip (mirrored X)
-      // Remap so the hand doesn't need to reach the camera's very edge
-      const normX = remap(1 - indexFingerTip.x, MARGIN_X); // mirrored
-      const normY = remap(indexFingerTip.y, MARGIN_Y);
-      const targetX = normX * canvas.width;
-      const targetY = normY * canvas.height;
-
-      target.pos.x = targetX;
-      target.pos.y = targetY;
-      target.active = true;
-
-      // Send normalized cursor position to Python server
-      if (!isStopped) {
-        wsSend({ type: 'move', x: normX, y: normY });
-      }
     } else {
+      // No hands detected
       target.active = false;
       isPinching = false;
       isRightClicking = false;
       leftClickFrames = 0;
       rightClickFrames = 0;
+      for (const k of [2, 3, 4]) spotifyFrames[k] = 0;
+      wristHistory = [];
+      rotAccum = 0;
     }
   }
   
@@ -332,14 +419,66 @@ function drawScene() {
   ctx.shadowBlur = 40;
   ctx.shadowColor = neonColor;
   ctx.fill();
-  
+
   // Draw an outer ring for the cursor
   ctx.beginPath();
   ctx.arc(cursor.pos.x, cursor.pos.y, 18, 0, Math.PI * 2);
   ctx.strokeStyle = neonColor;
   ctx.lineWidth = 2;
   ctx.stroke();
-  
+
+  // ── Spotify gesture progress arc ──────────────────────────────────
+  const extFingers = [2, 3, 4].find(n => spotifyFrames[n] > 0);
+  if (extFingers && spotifyCooldown === 0) {
+    const progress = spotifyFrames[extFingers] / SPOTIFY_FRAMES_REQ;
+    const arcColor = extFingers === 2 ? '#1db954'
+                   : extFingers === 3 ? '#ff9700'
+                   : '#a855f7';
+
+    // Background ring
+    ctx.beginPath();
+    ctx.arc(cursor.pos.x, cursor.pos.y, 30, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    // Progress arc
+    ctx.beginPath();
+    ctx.arc(cursor.pos.x, cursor.pos.y, 30,
+      -Math.PI / 2,
+      -Math.PI / 2 + progress * Math.PI * 2
+    );
+    ctx.strokeStyle = arcColor;
+    ctx.lineWidth = 4;
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = arcColor;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Gesture hint label beneath cursor
+    const hint = SPOTIFY_GESTURES[extFingers]?.label || '';
+    ctx.font = 'bold 15px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = arcColor;
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = arcColor;
+    ctx.fillText(hint, cursor.pos.x, cursor.pos.y + 52);
+    ctx.shadowBlur = 0;
+  }
+
+  // ── Spotify action flash label ─────────────────────────────────────
+  if (spotifyLabelFrames > 0) {
+    spotifyLabelFrames--;
+    const alpha = Math.min(1, spotifyLabelFrames / 20); // fade out last 20 frames
+    ctx.font = 'bold 28px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = `rgba(29, 185, 84, ${alpha})`;
+    ctx.shadowBlur = 30;
+    ctx.shadowColor = `rgba(29, 185, 84, ${alpha})`;
+    ctx.fillText(spotifyLabel, canvas.width / 2, canvas.height / 2 - 20);
+    ctx.shadowBlur = 0;
+  }
+
   // Reset shadow
   ctx.shadowBlur = 0;
 }
