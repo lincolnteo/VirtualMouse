@@ -1,6 +1,6 @@
 # 🖱️ Virtual Mouse
 
-A hand-tracking virtual mouse that runs entirely in your browser. Control your Windows cursor, click, and manage Spotify — all with hand gestures captured by your webcam. No external hardware required.
+A hand-tracking virtual mouse that runs entirely in your browser. Control your Windows cursor and click — all with hand gestures captured by your webcam. No external hardware required.
 
 Built with **MediaPipe Hands**, **Vite**, and a lightweight **Python WebSocket bridge**.
 
@@ -13,8 +13,6 @@ Built with **MediaPipe Hands**, **Vite**, and a lightweight **Python WebSocket b
 - [Installation](#installation)
 - [Running the App](#running-the-app)
 - [Gestures Reference](#gestures-reference)
-  - [Right Hand — Cursor Control](#right-hand--cursor-control)
-  - [Left Hand — Spotify Control](#left-hand--spotify-control)
 - [HUD Status Indicator](#hud-status-indicator)
 - [Project Structure](#project-structure)
 - [Troubleshooting](#troubleshooting)
@@ -30,7 +28,7 @@ Webcam → Browser (MediaPipe) → WebSocket → Python Server → Windows OS
 1. Your **webcam** captures your hand in real time.
 2. **MediaPipe Hands** (running in-browser via WebAssembly/GPU) detects hand landmarks at high speed.
 3. The browser sends compact JSON commands over a **WebSocket** to `server.py`.
-4. The Python server translates those commands into real **OS-level actions** — moving the cursor, clicking, and controlling Spotify — using `pyautogui` and `pycaw`.
+4. The Python server translates those commands into real **OS-level actions** — moving the cursor and clicking — using `pyautogui`.
 
 ---
 
@@ -44,8 +42,7 @@ Make sure you have the following installed before starting:
 | **Python** | 3.10+ | For the WebSocket bridge |
 | **pip** | Latest | Python package manager |
 | **Webcam** | Any | Built-in or USB |
-| **Windows** | 10 / 11 | Required — uses Windows-only audio APIs |
-| **Spotify** | Desktop app | Must be open for volume control |
+| **Windows** | 10 / 11 | Required for OS-level mouse control |
 
 ---
 
@@ -73,13 +70,12 @@ python -m venv .venv
 ### 4. Install Python dependencies
 
 ```bash
-.venv\Scripts\pip install pyautogui websockets pycaw
+.venv\Scripts\pip install pyautogui websockets
 ```
 
 > **Why these packages?**
-> - `pyautogui` — moves the mouse and sends key presses
+> - `pyautogui` — moves the mouse and fires clicks
 > - `websockets` — async WebSocket server
-> - `pycaw` — Windows Core Audio API wrapper (Spotify-only volume control)
 
 ---
 
@@ -124,13 +120,7 @@ Once both are running:
 
 ## Gestures Reference
 
-> **Important:** The webcam image is mirrored (like a mirror), so MediaPipe's "Left" hand label corresponds to your **right hand**, and vice versa. The app accounts for this automatically.
-
----
-
-### Right Hand — Cursor Control
-
-Your **right hand** controls the mouse cursor and clicks.
+### Cursor Control
 
 | Gesture | Action | Visual Feedback |
 |---|---|---|
@@ -146,37 +136,6 @@ Your **right hand** controls the mouse cursor and clicks.
 
 ---
 
-### Left Hand — Spotify Control
-
-Your **left hand** is dedicated to Spotify controls. The number of **extended fingers** (index to pinky, thumb excluded) determines the action.
-
-#### Finger Gestures (hold for ~8 frames to trigger)
-
-| Fingers Extended | Gesture | Action |
-|---|---|---|
-| ✌️ **2 fingers** (index + middle) | Peace sign | ⏯ **Play / Pause** |
-| 🤟 **3 fingers** (index + middle + ring) | Three-finger salute | ⏭ **Next Track** |
-| 🖖 **4 fingers** (index to pinky) | Four fingers | ⏮ **Previous Track** |
-
-A **progress arc** animates around the cursor as you hold the gesture, confirming it's being detected. The action fires when the arc completes.
-
-#### Wrist Rotation — Volume Control
-
-Rotate your **left wrist in a circular motion** to control Spotify's volume:
-
-| Motion | Action |
-|---|---|
-| 🔁 **Clockwise rotation** | 🔊 Volume Up (+5%) |
-| 🔄 **Counter-clockwise rotation** | 🔉 Volume Down (-5%) |
-
-> **Note:** This adjusts **only Spotify's app volume**, not your system volume. Spotify must be open and actively playing (or have played audio recently) for this to work. The server will log `[Spotify] Spotify not found` if it can't find Spotify's audio session.
-
-#### Cooldowns (prevent accidental double-fires)
-- **Finger gestures**: 45-frame cooldown after firing
-- **Volume ticks**: 25-frame cooldown between each tick
-
----
-
 ### Emergency Stop
 
 Press **`ESC`** in the browser at any time to toggle the mouse control on/off.
@@ -184,7 +143,7 @@ Press **`ESC`** in the browser at any time to toggle the mouse control on/off.
 | State | HUD Display | Effect |
 |---|---|---|
 | 🟢 Active | `✅ Virtual Mouse Active — ESC to Stop` | Full control enabled |
-| 🔴 Stopped | `⛔ STOPPED — Press ESC to Resume` | Red vignette overlay; all mouse+Spotify commands blocked |
+| 🔴 Stopped | `⛔ STOPPED — Press ESC to Resume` | Red vignette overlay; all mouse commands blocked |
 
 ---
 
@@ -206,7 +165,7 @@ The status bar at the top of the screen shows the current connection state:
 VirtualMouse/
 ├── index.html          # App entry point (webcam + canvas overlay)
 ├── package.json        # Node dependencies (Vite, MediaPipe)
-├── server.py           # Python WebSocket server (pyautogui + pycaw)
+├── server.py           # Python WebSocket server (pyautogui)
 ├── src/
 │   ├── main.js         # Hand tracking, gesture logic, WebSocket client
 │   └── style.css       # Neon UI styles
@@ -232,11 +191,6 @@ VirtualMouse/
 - The click requires a pinch held for **~5 frames** (~170ms at 30fps) — hold it slightly longer.
 - Make sure your thumb and finger actually come close enough together (threshold: 5% of frame width for left click, 4% for right click).
 
-### Spotify volume control not working
-- Spotify must be **open** and have **played audio** at least once in this session.
-- Make sure you installed `pycaw`: `.venv\Scripts\pip install pycaw`
-- The server prints `[Spotify] volume 0.XX → 0.XX` when it works — check the terminal.
-
 ### `OSError: [Errno 10048]` — port already in use
 - Another `server.py` instance is still running. Kill it with:
   ```powershell
@@ -259,7 +213,6 @@ VirtualMouse/
 | Build Tool | [Vite](https://vitejs.dev/) |
 | WebSocket Server | Python `asyncio` + `websockets` |
 | Mouse Control | [`pyautogui`](https://pyautogui.readthedocs.io/) |
-| Spotify Volume | [`pycaw`](https://github.com/AndreMiras/pycaw) (Windows Core Audio API) |
 
 ---
 
