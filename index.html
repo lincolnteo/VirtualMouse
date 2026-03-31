@@ -14,7 +14,20 @@
       <div class="corner-bracket bottom-left"></div>
       <div class="corner-bracket bottom-right"></div>
       <canvas id="canvas"></canvas>
-      <div id="hud" class="hud-warn">⚠️ Server not connected — run server.py</div>
+      <div id="hud" class="hud-active">✅ STANDALONE DEMO ACTIVE</div>
+      
+      <!-- Interactive Elements for the Demo -->
+      <div class="terminal-ui">
+        <div class="ui-button" id="btn-1">INIT SYSTEM</div>
+        <div class="ui-button" id="btn-2">NEURAL OVERRIDE</div>
+        <div class="ui-button" id="btn-3">DEBUG STREAM</div>
+        <div class="ui-button" id="btn-4">PURGE LOGS</div>
+      </div>
+
+      <div class="data-node" id="node-1" style="top: 20%; left: 15%"></div>
+      <div class="data-node" id="node-2" style="top: 25%; right: 20%"></div>
+      <div class="data-node" id="node-3" style="bottom: 30%; left: 25%"></div>
+      <div class="data-node" id="node-4" style="bottom: 20%; right: 15%"></div>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>

@@ -7,6 +7,7 @@ body, html {
   background-color: #02020a; /* Deep midnight background */
   font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
   color: #fff;
+  user-select: none;
 }
 
 #app {
@@ -29,7 +30,7 @@ body, html {
   opacity: 0.85; 
   transform: scaleX(-1); /* Mirror camera feed */
   z-index: 1;
-  filter: contrast(1.2) brightness(0.9) saturate(0.8) hue-rotate(-5deg); /* Sci-fi grade */
+  filter: contrast(1.1) brightness(0.85) saturate(0.8) hue-rotate(-10deg);
 }
 
 /* Scanline Effect Overlay */
@@ -54,21 +55,95 @@ body, html {
   opacity: 0.4;
 }
 
-/* Corner Brackets for a "Targeting" feel */
-.corner-bracket {
+/* UI Elements */
+.terminal-ui {
   position: absolute;
-  width: 40px;
-  height: 40px;
-  border: 2px solid rgba(0, 255, 100, 0.4);
-  z-index: 15;
-  pointer-events: none;
-  box-shadow: 0 0 10px rgba(0, 255, 100, 0.2);
+  bottom: 120px;
+  right: 50px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 20;
 }
 
-.top-left { top: 30px; left: 30px; border-right: none; border-bottom: none; }
-.top-right { top: 30px; right: 30px; border-left: none; border-bottom: none; }
-.bottom-left { bottom: 30px; left: 30px; border-right: none; border-top: none; }
-.bottom-right { bottom: 30px; right: 30px; border-left: none; border-top: none; }
+.ui-button {
+  padding: 10px 20px;
+  background: rgba(0, 255, 100, 0.05);
+  border: 1px solid rgba(0, 255, 100, 0.2);
+  color: rgba(0, 255, 100, 0.8);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.19, 1, 0.22, 1);
+  text-align: left;
+  position: relative;
+  overflow: hidden;
+}
+
+.ui-button:hover, .ui-button.hover {
+  background: rgba(0, 255, 100, 0.15);
+  border-color: rgba(0, 255, 100, 0.5);
+  box-shadow: 0 0 15px rgba(0, 255, 100, 0.1);
+  color: #fff;
+  transform: translateX(-5px);
+}
+
+.ui-button:active, .ui-button.active {
+  background: rgba(0, 255, 100, 0.4);
+  color: #000;
+  transform: translateX(-2px) scale(0.98);
+}
+
+.data-node {
+  position: absolute;
+  width: 60px;
+  height: 60px;
+  border: 1px dashed rgba(0, 255, 150, 0.4);
+  border-radius: 50%;
+  z-index: 15;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: all 0.4s ease;
+}
+
+.data-node::after {
+  content: "";
+  width: 10px;
+  height: 10px;
+  background: #00ff99;
+  border-radius: 50%;
+  box-shadow: 0 0 10px #00ff99;
+}
+
+.data-node:hover, .data-node.hover {
+  width: 80px;
+  height: 80px;
+  border: 2px solid #00ff99;
+  background: rgba(0, 255, 150, 0.1);
+}
+
+.data-node.active {
+  background: #00ff99;
+  box-shadow: 0 0 40px #00ff99;
+}
+
+/* Corner Brackets */
+.corner-bracket {
+  position: absolute;
+  width: 50px;
+  height: 50px;
+  border: 1px solid rgba(0, 255, 150, 0.3);
+  z-index: 15;
+  pointer-events: none;
+}
+
+.top-left { top: 40px; left: 40px; border-right: none; border-bottom: none; }
+.top-right { top: 40px; right: 40px; border-left: none; border-bottom: none; }
+.bottom-left { bottom: 40px; left: 40px; border-right: none; border-top: none; }
+.bottom-right { bottom: 40px; right: 40px; border-left: none; border-top: none; }
 
 #canvas {
   position: absolute;
@@ -83,51 +158,42 @@ body, html {
 /* Status HUD Upgrade */
 #hud {
   position: absolute;
-  bottom: 40px; /* Moved to bottom for better scan-look */
+  top: 40px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 20;
-  padding: 10px 24px;
-  border-radius: 4px;
-  font-family: 'JetBrains Mono', 'Courier New', monospace;
-  font-size: 12px;
+  z-index: 30;
+  padding: 8px 18px;
+  border-radius: 2px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
   font-weight: bold;
-  letter-spacing: 2px;
+  letter-spacing: 3px;
   text-transform: uppercase;
   pointer-events: none;
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255,255,255,0.1);
-  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.05);
+  transition: all 0.4s ease;
   white-space: nowrap;
 }
 
 #hud.hud-active {
-  background: rgba(0, 255, 100, 0.08);
-  color: #00ff66;
-  border-color: rgba(0, 255, 100, 0.3);
-  box-shadow: 0 0 20px rgba(0, 255, 100, 0.15), inset 0 0 8px rgba(0, 255, 100, 0.1);
+  background: rgba(0, 255, 150, 0.05);
+  color: #00ff99;
+  box-shadow: 0 0 30px rgba(0, 255, 150, 0.1);
 }
 
 #hud.hud-stopped {
-  background: rgba(255, 68, 68, 0.08);
-  color: #ff4444;
-  border-color: rgba(255, 68, 68, 0.3);
-  box-shadow: 0 0 20px rgba(255, 68, 68, 0.15), inset 0 0 8px rgba(255, 68, 68, 0.1);
+  background: rgba(255, 50, 50, 0.1);
+  color: #ff3333;
+  box-shadow: 0 0 30px rgba(255, 50, 50, 0.1);
 }
 
-#hud.hud-warn {
-  background: rgba(255, 204, 0, 0.08);
-  color: #ffcc00;
-  border-color: rgba(255, 204, 0, 0.3);
-  box-shadow: 0 0 20px rgba(255, 204, 0, 0.15), inset 0 0 8px rgba(255, 204, 0, 0.1);
-}
-
-/* Vignette overlay for sci-fi focus */
+/* Vignette */
 #app::after {
   content: "";
   position: absolute;
   top: 0; left: 0; width: 100%; height: 100%;
-  background: radial-gradient(circle, transparent 40%, rgba(0,0,0,0.5) 100%);
+  background: radial-gradient(circle, transparent 40%, rgba(0,0,0,0.6) 100%);
   z-index: 6;
   pointer-events: none;
 }
