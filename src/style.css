@@ -1,0 +1,77 @@
+body, html {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: #050510; /* Dark space background */
+  font-family: sans-serif;
+}
+
+#app {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
+#webcam {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 1; /* Show video */
+  transform: scaleX(-1); /* Mirror camera feed */
+  z-index: 1;
+}
+
+#canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
+  pointer-events: none;
+}
+
+/* Status HUD */
+#hud {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  padding: 8px 20px;
+  border-radius: 999px;
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.15);
+  transition: background 0.3s, color 0.3s;
+  white-space: nowrap;
+}
+
+#hud.hud-active {
+  background: rgba(0, 200, 80, 0.25);
+  color: #00ff66;
+  box-shadow: 0 0 16px rgba(0,255,100,0.4);
+}
+
+#hud.hud-stopped {
+  background: rgba(220, 30, 30, 0.35);
+  color: #ff4444;
+  box-shadow: 0 0 16px rgba(255,50,50,0.5);
+}
+
+#hud.hud-warn {
+  background: rgba(200, 150, 0, 0.25);
+  color: #ffcc00;
+  box-shadow: 0 0 16px rgba(255,200,0,0.3);
+}
+
