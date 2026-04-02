@@ -58,6 +58,13 @@ class Ripple {
 
 let statusLabel = '', statusLabelFrames = 0, isStopped = false;
 
+function setHudMessage(message, activeClass = 'hud-active') {
+  const hud = document.getElementById('hud');
+  if (!hud) return;
+  hud.textContent = message;
+  hud.className = activeClass;
+}
+
 // --- INTERACTIVE STANDALONE LOGIC ---
 function simulateClick(x, y) {
   const element = document.elementFromPoint(x, y);
@@ -124,11 +131,20 @@ async function initMediaPipe() {
   startCamera();
 }
 
-function startCamera() {
-  navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
     video.srcObject = stream;
-    video.addEventListener("loadeddata", () => { webcamRunning = true; resizeCanvas(); window.requestAnimationFrame(predictWebcam); });
-  });
+    video.muted = true;
+    video.playsInline = true;
+    await video.play();
+    webcamRunning = true;
+    resizeCanvas();
+    window.requestAnimationFrame(predictWebcam);
+  } catch (error) {
+    console.error('Unable to start camera', error);
+    setHudMessage('CAMERA UNAVAILABLE', 'hud-stopped');
+  }
 }
 
 function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
